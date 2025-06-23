@@ -4,14 +4,21 @@ const http = require('http').createServer(app);
 const io = require('socket.io')(http, { cors: { origin: "https://broinkroyale.onrender.com" } });
 const planck = require('planck-js');
 const { v4: uuidv4 } = require('uuid');
+const path = require('path');
 
-const Vec2 = planck.Vec2;
-const gameData = { lobbies: {} };
+// Serve static status page at root
+app.use(express.static(path.join(__dirname, 'public')));
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'status.html'));
+});
 
 // Health endpoint for service activity detection
 app.get('/health', (req, res) => {
   res.status(200).send('OK');
 });
+
+const Vec2 = planck.Vec2;
+const gameData = { lobbies: {} };
 
 // Get all game data
 function getGameData() {
@@ -61,7 +68,7 @@ function lobbyTick(lobbyId) {
   // Step physics
   world.step(1 / 60);
 
-  // Shrink arena (every 10 seconds, reduce by shrinkRate until minSize)
+  // Shrink arena
   lobby.shrinkTimer = (lobby.shrinkTimer || 0) + 1 / 30;
   if (lobby.shrinkTimer >= 10) {
     arena.width = Math.max(arena.minSize, arena.width - arena.shrinkRate);
@@ -79,7 +86,6 @@ function lobbyTick(lobbyId) {
         player.isAlive = false;
         player.body.setPosition(Vec2(arena.width / 2, arena.height / 2));
         player.body.setLinearVelocity(Vec2(0, 0));
-        // Check for knockout attribution (last contact within 2 seconds)
         const lastContact = player.lastContact || {};
         if (lastContact.playerId && Date.now() - lastContact.timestamp < 2000) {
           const scorer = lobby.players[lastContact.playerId];
@@ -116,25 +122,23 @@ function lobbyTick(lobbyId) {
   io.to(lobbyId).emit('gameUpdate', lobbyState);
 }
 
-// Update arena boundaries in physics world
+// Update arena boundaries
 function updateArenaBoundaries(lobbyId) {
   const lobby = gameData.lobbies[lobbyId];
   const world = lobby.world;
   const arena = lobby.arena;
 
-  // Remove old boundaries
   if (lobby.boundaries) {
     lobby.boundaries.forEach(body => world.destroyBody(body));
   }
 
-  // Create new static boundaries
   lobby.boundaries = [];
   const thickness = 10;
   const shapes = [
-    { pos: Vec2(arena.width / 2, -thickness / 2), size: Vec2(arena.width, thickness) }, // Top
-    { pos: Vec2(arena.width / 2, arena.height + thickness / 2), size: Vec2(arena.width, thickness) }, // Bottom
-    { pos: Vec2(-thickness / 2, arena.height / 2), size: Vec2(thickness, arena.height) }, // Left
-    { pos: Vec2(arena.width + thickness / 2, arena.height / 2), size: Vec2(thickness, arena.height) } // Right
+    { pos: Vec2(arena.width / 2, -thickness / 2), size: Vec2(arena.width, thickness) },
+    { pos: Vec2(arena.width / 2, arena.height + thickness / 2), size: Vec2(arena.width, thickness) },
+    { pos: Vec2(-thickness / 2, arena.height / 2), size: Vec2(thickness, arena.height) },
+    { pos: Vec2(arena.width + thickness / 2, arena.height / 2), size: Vec2(thickness, arena.height) }
   ];
 
   shapes.forEach(shape => {
@@ -178,7 +182,6 @@ io.on('connection', (socket) => {
       lastContact: null
     };
 
-    // Detect collisions for knockouts
     lobby.world.on('begin-contact', (contact) => {
       const bodyA = contact.getFixtureA().getBody();
       const bodyB = contact.getFixtureB().getBody();
@@ -197,7 +200,6 @@ io.on('connection', (socket) => {
     io.to(targetLobbyId).emit('playerList', Object.keys(lobby.players));
     socket.emit('joinedLobby', targetLobbyId);
 
-    // Start game if enough players (e.g., 4)
     if (Object.keys(lobby.players).length >= 4 && lobby.state === 'waiting') {
       lobby.state = 'active';
       io.to(targetLobbyId).emit('gameStarted');
@@ -244,7 +246,6 @@ io.on('connection', (socket) => {
   });
 });
 
-// Run lobby ticks for active lobbies (30 FPS)
 setInterval(() => {
   Object.keys(gameData.lobbies).forEach(lobbyId => {
     lobbyTick(lobbyId);
