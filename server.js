@@ -1,7 +1,7 @@
 const express = require('express');
 const app = express();
 const http = require('http').createServer(app);
-const io = require('socket.io')(http, { cors: { origin: "https://broinkserver.onrender.com" } });
+const io = require('socket.io')(http, { cors: { origin: "https://broinkroyale.onrender.com" } });
 const planck = require('planck-js');
 const { v4: uuidv4 } = require('uuid');
 
